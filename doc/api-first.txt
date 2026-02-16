@@ -1,0 +1,30 @@
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                        API-First Flow                           │
+  ├─────────────────────────────────────────────────────────────────┤
+  │                                                                 │
+  │   OpenAPI YAML (Contract)                                       │
+  │   ┌─────────────────────────────────┐                           │
+  │   │ - URL paths                     │                           │
+  │   │ - HTTP methods                  │  ← Định nghĩa 1 lần       │
+  │   │ - Request/Response schemas      │                           │
+  │   │ - Validation rules              │                           │
+  │   └───────────────┬─────────────────┘                           │
+  │                   │                                             │
+  │                   ▼  (Generate)                                 │
+  │   ┌─────────────────────────────────┐                           │
+  │   │ Interface + DTOs                │                           │
+  │   │ - @RequestMapping               │  ← Boilerplate tự sinh    │
+  │   │ - @PathVariable                 │                           │
+  │   │ - @RequestBody                  │                           │
+  │   │ - @Valid                        │                           │
+  │   └───────────────┬─────────────────┘                           │
+  │                   │                                             │
+  │                   ▼  (Implement)                                │
+  │   ┌─────────────────────────────────┐                           │
+  │   │ Controller                      │                           │
+  │   │ - Access control                │  ← Chỉ focus vào          │
+  │   │ - Business logic                │    BUSINESS LOGIC         │
+  │   │ - Audit logging                 │                           │
+  │   └─────────────────────────────────┘                           │
+  │                                                                 │
+  └─────────────────────────────────────────────────────────────────┘
