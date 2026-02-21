@@ -1,0 +1,134 @@
+Cách Service thao tác trên Models
+
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                    ACCESSCONTROLSERVICE OPERATIONS FLOW                        │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                │
+│  STEP 1: Application Startup                                                   │
+│  ────────────────────────────                                                  │
+│                                                                                │
+│  ┌──────────────────┐    load     ┌──────────────────────────────────────┐     │
+│  │ application.yml  │ ─────────→  │ RoleBasedAccessControlProperties     │     │
+│  │                  │             │   - List<Role> roles                 │     │
+│  │ rbac:            │             │   - DefaultRole defaultRole          │     │
+│  │   roles: [...]   │             └──────────────────────────────────────┘     │
+│  │   defaultRole:   │                            │                             │
+│  └──────────────────┘                            │ inject                      │
+│                                                  ▼                             │
+│                                    ┌──────────────────────────────┐            │
+│                                    │    AccessControlService      │            │
+│                                    │    @PostConstruct init()     │            │
+│                                    │    - Set rbacEnabled = true  │            │
+│                                    │    - Create oauthExtractors  │            │
+│                                    └──────────────────────────────┘            │
+│                                                                                │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                │
+│  STEP 2: User Login (OAuth Example)                                            │
+│  ──────────────────────────────────                                            │
+│                                                                                │
+│  ┌─────────────┐     ┌────────────────────┐     ┌─────────────────────────┐    │
+│  │ OAuth       │     │ OAuthSecurityConfig│     │ GithubAuthorityExtractor│    │
+│  │ Provider    │ ──→ │ customOauth2User   │ ──→ │ extract()               │    │
+│  │ (GitHub)    │     │ Service()          │     │                         │    │
+│  └─────────────┘     └────────────────────┘     └─────────────────────────┘    │
+│        │                                                   │                   │
+│        │ OAuth2User                                        │ Set<String>       │
+│        │                                                   │ (role names)      │
+│        │                                                   ▼                   │
+│        │                              ┌─────────────────────────────────┐      │
+│        └─────────────────────────────→│ RbacOAuth2User                  │      │
+│                                       │   - user: OAuth2User            │      │
+│                                       │   - groups: {"admin","dev"}     │      │
+│                                       └─────────────────────────────────┘      │
+│                                                   │                            │
+│                                                   │ store in                   │
+│                                                   ▼                            │
+│                                       ┌───────────────────────────────────┐    │
+│                                       │ ReactiveSecurityContextHolder     │    │
+│                                       │   .getContext()                   │    │
+│                                       │   .getAuthentication()            │    │
+│                                       │   .getPrincipal() = RbacOAuth2User│    │
+│                                       └───────────────────────────────────┘    │
+│                                                                                │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                │
+│  STEP 3: Authorization Check (validateAccess)                                  │
+│  ────────────────────────────────────────────                                  │
+│                                                                                │
+│  Controller builds AccessContext:                                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐       │
+│  │ AccessContext.builder()                                             │       │
+│  │   .cluster("production")                                            │       │
+│  │   .topicActions("orders-topic", TopicAction.CREATE)                 │       │
+│  │   .operationName("createTopic")                                     │       │
+│  │   .build()                                                          │       │
+│  │                                                                     │       │
+│  │ Result:                                                             │       │
+│  │   AccessContext {                                                   │       │
+│  │     cluster: "production"                                           │       │
+│  │     accessedResources: [                                            │       │
+│  │       SingleResourceAccess {                                        │       │
+│  │         name: "orders-topic"                                        │       │
+│  │         resourceType: TOPIC                                         │       │
+│  │         requestedActions: [CREATE]                                  │       │
+│  │       }                                                             │       │
+│  │     ]                                                               │       │
+│  │     operationName: "createTopic"                                    │       │
+│  │   }                                                                 │       │
+│  └─────────────────────────────────────────────────────────────────────┘       │
+│                              │                                                 │
+│                              ▼                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐       │
+│  │ AccessControlService.validateAccess(context)                        │       │
+│  │                                                                     │       │
+│  │   1. if (!rbacEnabled) return Mono.just(true)                       │       │
+│  │                                                                     │       │
+│  │   2. getUser() → Extract từ SecurityContext                         │       │
+│  │      ┌─────────────────────────────────────────┐                    │       │
+│  │      │ RbacOAuth2User                          │                    │       │
+│  │      │   .name() → "john"                      │                    │       │
+│  │      │   .groups() → ["admin", "developer"]    │                    │       │
+│  │      └─────────────────────────────────────────┘                    │       │
+│  │                    │                                                │       │
+│  │                    ▼                                                │       │
+│  │      ┌─────────────────────────────────────────┐                    │       │
+│  │      │ AuthenticatedUser                       │                    │       │
+│  │      │   principal: "john"                     │                    │       │
+│  │      │   groups: ["admin", "developer"]        │                    │       │
+│  │      └─────────────────────────────────────────┘                    │       │
+│  │                                                                     │       │
+│  │   3. isClusterAccessible("production", user)                        │       │
+│  │      - Filter roles where user.groups.contains(role.name)           │       │
+│  │      - Check if any role has "production" in clusters               │       │
+│  │      - Or defaultRole exists                                        │       │
+│  │                                                                     │       │
+│  │   4. getUserPermissions(user, "production")                         │       │
+│  │      ┌─────────────────────────────────────────────────────────┐    │       │
+│  │      │ Filter: roles where                                     │    │       │
+│  │      │   user.groups.contains(role.name) = true                │    │       │
+│  │      │   AND role.clusters.contains("production") = true       │    │       │
+│  │      │                                                         │    │       │
+│  │      │ Example matched role "admin":                           │    │       │
+│  │      │   permissions: [                                        │    │       │
+│  │      │     Permission {                                        │    │       │
+│  │      │       resource: TOPIC                                   │    │       │
+│  │      │       parsedActions: [VIEW, CREATE, EDIT, DELETE, ...]  │    │       │
+│  │      │       compiledValuePattern: null (all topics)           │    │       │
+│  │      │     }                                                   │    │       │
+│  │      │   ]                                                     │    │       │
+│  │      └─────────────────────────────────────────────────────────┘    │       │
+│  │                                                                     │       │
+│  │   5. context.isAccessible(userPermissions)                          │       │
+│  │      - For each SingleResourceAccess in context:                    │       │
+│  │        - Filter permissions by resourceType (TOPIC)                 │       │
+│  │        - Match resource name "orders-topic" against patterns        │       │
+│  │        - Collect allowedActions                                     │       │
+│  │        - Check: allowedActions.containsAll([CREATE]) ?              │       │
+│  │                                                                     │       │
+│  │   6. Result:                                                        │       │
+│  │      - true → Mono.empty() (continue)                               │       │
+│  │      - false → Mono.error(AccessDeniedException)                    │       │
+│  └─────────────────────────────────────────────────────────────────────┘       │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
