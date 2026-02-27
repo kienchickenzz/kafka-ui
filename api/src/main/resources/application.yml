@@ -19,3 +19,15 @@ logging:
     reactor.netty.http.server.AccessLog: INFO
     org.hibernate.validator: WARN
 
+kafka:
+  clusters:
+    - name: local
+      bootstrapServers: 127.0.0.1:19092
+      schemaRegistry: http://localhost:8085
+      ksqldbServer: http://localhost:8088
+      kafkaConnect:
+        - name: Kafka Connect
+          address: http://127.0.0.1:8083
+      metrics:
+        port: 9997
+        type: JMX
